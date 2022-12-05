@@ -48,8 +48,6 @@ float tab_commandL[100], tab_commandR[100];
 
 static void task_Sensors(void *pvParameters)
 {
-	char msgZigby;
-
 	uint16_t lUS, rUS;
 	int obstacle_l, obstacle_r;
 	int table[2];
@@ -79,39 +77,39 @@ static void task_Sensors(void *pvParameters)
 		obstacle_r = table[1] > IR_SEUIL; //right IR sensor
 
 	//===== Obstacle Management =====
-		//=== IR Sensor===
+		//=== IR Sensor - forward motion===
+
 		if(obstacle_l && obstacle_r) //obstacles both sides - back
 		{
 			pxMessage.command = 'b';
 			xQueueSend( qmotor, ( void * ) &pxMessage,  portMAX_DELAY );
-
-			//xQueueSend( qlcd, ( void * ) &pxMessage,  portMAX_DELAY );
+			xQueueSend( qlcd, ( void * ) &pxMessage,  portMAX_DELAY );
 		}
 
 		else if(obstacle_l && !obstacle_r) //obstacle left side - turn right
 		{
 			pxMessage.command = 'r';
 			xQueueSend( qmotor, ( void * ) &pxMessage,  portMAX_DELAY );
+			xQueueSend( qlcd, ( void * ) &pxMessage,  portMAX_DELAY );
 		}
 
 		else if(obstacle_r && !obstacle_l) //obstacle right side - turn left
 		{
 			pxMessage.command = 'l';
 			xQueueSend( qmotor, ( void * ) &pxMessage,  portMAX_DELAY );
+			xQueueSend( qlcd, ( void * ) &pxMessage,  portMAX_DELAY );
 		}
-
-
+		
 		else //no obstacles - retrieve the pre-defined instructions
 		{
 			pxMessage.command = 'c';
 			xQueueSend( qmotor, ( void * ) &pxMessage,  portMAX_DELAY );
+			xQueueSend( qlcd, ( void * ) &pxMessage,  portMAX_DELAY );
 		}
-
+			
 		xSemaphoreTake( xSemaphore, portMAX_DELAY );
 		count++;
 		vTaskDelay(5);
-
-
 	}
 
 }
@@ -119,8 +117,9 @@ static void task_Sensors(void *pvParameters)
 static void task_Motors(void *pvParameters)
 {
 	int speedLeft, speedRight;
-	int errorL, errorR;
-	int commL, commR; // command motors
+	int errorL , errorR;
+	int commL;// command motors
+	int commR;
 	static int i = 0;
 	float upL, upR;
 	static float uiL= 0.0;
@@ -182,39 +181,38 @@ static void task_Motors(void *pvParameters)
 	}
 
 }
-/*
-static void task_MotorRight(void *pvParameters)
+//LCD
+static void task_LCD(void *pvParameters)
 {
-
-	int erreur;
-	static int i = 0;
-	float up=0.0;
-	static float ui= 0.0;
-
+	struct AMessage pxRxedMessage;
 	for (;;)
 	{
-		speedRight = quadEncoder_GetSpeedR();
-		erreur = commandR - speedRight;
-		up = KpR*(float)erreur;
-		ui = ui +KpR*Ki*(float)erreur;
+		xQueueReceive( qlcd,  &( pxRxedMessage ) , portMAX_DELAY );
+		groveLCD_setColor(4);
+		groveLCD_setCursor(0, 0);
 
-		motorRight_SetDuty(up+ui+100);
-
-		if (i < 100)
+		if(pxRxedMessage.command == 'b') //obstacles both sides - back
 		{
-		tab_speedR[i]= speedRight;
-		tab_speedR[i]= speedLight;
-		tab_commandR[i]=up+ui;
-		tab_commandL[100]
-		i++;
+			groveLCD_term_printf("DIR: Back");
 		}
 
-		//term_printf("TASK B \n\r");
-		//vTaskDelay(5); // 1000 ms
-		xSemaphoreTake( xSemaphore, portMAX_DELAY );
+		else if(pxRxedMessage.command == 'r') //obstacle left side - turn right
+		{
+			groveLCD_term_printf("DIR: Right");
+		}
+
+		else if(pxRxedMessage.command == 'l') //obstacle right side - turn left
+		{
+			groveLCD_term_printf("DIR: Left");
+		}
+
+		else if(pxRxedMessage.command == 'c') //no obstacles - retrieve the pre-defined instructions
+		{
+			groveLCD_term_printf("DIR: Command");
+		}
+		xSemaphoreGive( xSemaphore);
 	}
 }
-*/
 
 //========================================================
 #elif SYNCHRO_EX == EX2
@@ -309,13 +307,15 @@ int main(void)
 	motorLeft_SetDuty(100);
 	motorRight_SetDuty(100);
 
-
+	char text[]="Hello World\r\n";
+	term_printf_zigbee(text);
 
 
 
 #if SYNCHRO_EX == EX1
 	xTaskCreate( task_Sensors, ( const portCHAR * ) "task Sensors", 512 /* stack size */, NULL, tskIDLE_PRIORITY+1, NULL );
 	xTaskCreate( task_Motors, ( const portCHAR * ) "task Motors", 512 /* stack size */, NULL, tskIDLE_PRIORITY, NULL );
+	xTaskCreate( task_LCD, ( const portCHAR * ) "task LCD", 512 /* stack size */, NULL, tskIDLE_PRIORITY+2, NULL );
 
 #elif SYNCHRO_EX == EX2
 	xTaskCreate( task_C, ( signed portCHAR * ) "task C", 512 /* stack size */, NULL, tskIDLE_PRIORITY+2, NULL );
@@ -352,7 +352,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *UartHandle)
 
 	if(UartHandle -> Instance == USART6)
 	{
-
+		term_printf_zigbee(rec_buf6);
 		 HAL_UART_Receive_IT(&Uart6Handle, (uint8_t *)rec_buf6, NB_CAR_TO_RECEIVE);
 	}
 
@@ -383,5 +383,3 @@ extern void vApplicationTickHook(void)
 {
 //	HAL_IncTick();
 }
-
-
